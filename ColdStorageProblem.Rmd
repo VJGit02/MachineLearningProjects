@@ -1,0 +1,182 @@
+---
+title: "Projec2_ColdStorageProblem"
+author: "VijayPawar"
+date: "3/20/2020"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+```{r install packages}
+install.packages("ggplot2")
+library(ggplot2)
+install.packages('dplyr')
+library(dplyr)
+```
+
+
+
+```{r set working directory and load the data}
+setwd('c:\\ddrive\\Vijay\\Learning\\Course2_FundaementalsOfBusinessStatistics')
+coldStorageTempData = read.csv('Cold_Storage_Temp_Data.csv')
+View(coldStorageTempData)
+attach(coldStorageTempData)
+
+orderedMonths = factor (Month,levels= c('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'))
+
+tempDistOverMonths = ggplot(data=coldStorageTempData, aes(x=orderedMonths , y=Temperature,fill = Season))
+tempDistOverMonths + geom_boxplot() + ggtitle("Temperature Distribution over Months grouped by Seasons") + xlab('Months')
+
+
+
+```
+
+
+```{r P1Q1 Find the cold storage temperature for Summer Winter and Rainy season}
+#Use groupby function to group the data based on Seasons and then calculate the mean
+groupbySeasons = coldStorageTempData %>% group_by(Season) %>% summarise(meanTempSeason=mean(Temperature))
+#View(groupbySeasons)
+groupbySeasons[1:3,]
+
+#verify for one season if the mean given by group function is correct
+#onlyWinter = coldStorageTempData[Season == 'Winter',4]
+#onlyWinter
+#mean(onlyWinter)
+```
+
+
+```{r P1Q2 Overall mean for the full year}
+overallTempMean = mean(Temperature)
+overallTempMean
+
+#Lets also look at the temperature distribution for the entire year.
+
+tempHist = ggplot(data=coldStorageTempData,aes(Temperature))
+tempHist +  geom_histogram(aes(y = ..density..)) + geom_density(col = 'red') + ggtitle("Temperature Density Distribution") +ylab('Density') + xlab('Temperature')
+
+#Here we can see the temp distibution mimics a normal distribution
+
+```
+
+
+```{r P1Q3 Find Stadard Deviation for the full year}
+
+overAllTempSD = sd(Temperature)
+overAllTempSD
+
+#Lets try to see how is the data points distribution wrt to Std deviation is.
+
+coldStorageTempData$Year = '2016' #Add a categorical variable to be used over the entire dataset.
+tempDot = ggplot(data=coldStorageTempData,aes(y = Temperature , x = Year))
+tempDot + geom_dotplot(binaxis = 'y',stackdir = 'center') + geom_errorbar(aes(ymin=mean(Temperature)-overAllTempSD,ymax=mean(Temperature)+overAllTempSD)
+                                                              , col = 'green' , width = 0.5 , size=2 )
+
+```
+
+
+```{r P1Q4 Find probability of temperature falling below 2C}
+pnorm(2,mean=overallTempMean,sd=overAllTempSD)
+
+```
+```{r P1Q5 Find probability of temperature gone above 4C}
+pnorm(4,mean = overallTempMean , sd = overAllTempSD , lower.tail = FALSE)
+
+```
+
+
+```{r P1Q6 What is the penalty for AMC}
+#Here the penalty is is levied only when the temperature goes outside the range of 2-4.
+#We can use cummulative distribution function to find out the probability of the values being in 2-4 range and then subtract it from 1 to get the 
+#probability being outside of the range.
+
+pwithinRange = pnorm(4, mean=overallTempMean, sd=overAllTempSD) - pnorm(2, mean = overallTempMean, sd=overAllTempSD)
+poutRange = 1 - pwithinRange
+poutRange
+percentagePoutRange = 100*poutRange
+percentagePoutRange
+
+if(percentagePoutRange > 2 & percentagePoutRange < 5) {
+            print("Penalty is 10% of AMC")
+            } else if (percentagePoutRange > 5) {
+            print ("Penatly is 25% of AMC")
+            } else {
+            print ("No Penalty")
+        }
+    
+#Since the probability of going outside the accepted range is 3.81% Penalty is 10 % of AMC
+```
+
+
+```{r P1Q7 Perform one way Annova}
+
+#Let us plot the termperature distribution over the seasons and try to see visually if their is any difference
+
+tempDistOverSeasons = ggplot(coldStorageTempData ,aes( x = Temperature ,  y = Season))
+tempDistOverSeasons + geom_boxplot(fill = c('red', 'green', 'pink'))
+
+#From the boxplot it seems that the temperature in the Winter season is different than other 2 seasons , though their are some variations in between Rainy and Summer seasons as well.
+#Lets run an Annova test to check if their is any significant difference
+#H0 = E[WinterTemp] = E[SummerTemp] = E[RainyTemp]
+#HA = any of the mean is different
+
+tempModel = aov(Temperature~Season, data = coldStorageTempData)
+summary(tempModel)
+#The probability of finding an F value greater than a F critical value of 25.32 is very very small. Hence we reject the null hypothesis.
+#Lets a run a 2 sample test and each of the Groups and find out which mean is actually different
+
+TukeyHSD(tempModel)
+
+#Except for Summer-Rainy, all other combinations have a very low p-value thus resulting in the rejection of null-hypothesis.
+#Had Summer and Rainy, were the only 2 groups in the dataset then the null hypothesis would had hold true.
+
+```
+  
+  
+```{r load the data for second problem}
+last35Days = read.csv('Cold_Storage_Mar2018.csv')
+#View(last35Days)
+attach(last35Days)
+```
+
+  
+```{r P2Q1 Which Hypothesis Test shall be performed.}
+
+#We know that the company was started in March 2016, but we have data for last 35 days, so it’s a small sample.
+#There are 2 hypothesis test commonly used, Z and t test and as a general thumb of rule we use Z test if we have a sample size bigger than 30 and know the Population standard deviation. 
+#So, in this case we have a sample size of 35 but we don't know the population standard deviation; from the sample we can find out the sample standard deviation and then use the t -test. 
+#It is also proved that t test is more accurate because it tries to minimize the error in population standard deviation by taking into consideration the sample size,  hence in future it would be a good idea to perform this test on a bigger sample size.
+
+```
+  
+```{r State the hypothesis and perform the hypothesis test}
+#Ho : E[Temperature] <= 3.9
+#HA : E[Temperature] > 3.9
+meanS  = mean(Temperature)
+meanS
+sdS = sd(Temperature)
+sdS
+
+#Lets run the t-test
+t.test(Temperature, mu = 3.9 ,alternative =  'greater' )
+#p-value = 0.004711 = 0.471 %  . At alpha 0f 0.01 this probability is lesser than 1 % hence we reject the null hypotheises and can conclude that a corrective action in the storage plant is required
+
+#Let's calculat the tscore seperately and verify the results.
+tscore = (meanS - 3.9)/(sdS/sqrt(length(Temperature)))
+tscore
+
+#We need to find the probability of finding a tscore greater than the above tscore
+pt(tscore , df = 24 , lower.tail = FALSE)
+#p-value is 0.005543651 = 0.5% which is  lesser than alpha.
+
+```
+  
+  
+  
+  
+  
+  
+  
+  
+
+
