@@ -1,0 +1,531 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+```{r}
+library(ggplot2)
+library(GGally)
+install.packages('reshape2')
+library('reshape2')
+install.packages("rstatix")
+library(rstatix)
+install.packages("mice")
+library(mice)
+install.packages('caTools')
+library(caTools)
+install.packages("car")
+library(car)
+library(rpart)
+install.packages("rattle")
+tbl_sum()
+
+```
+
+
+```{r}
+
+chrCSV = read.csv("Coronary_heart_risk_study.csv",header = TRUE)
+attach(chrCSV)
+```
+
+```{r}
+head(chrCSV)
+tail(chrCSV)
+dim (chrCSV)
+
+```
+
+
+
+```{r}
+chrCSV['TenTearCHDFactor'] = as.factor(TenYearCHD)
+chrCSV['GenderFactor'] = as.factor(ifelse(chrCSV$male ==1 ,'Male','Female'))
+chrCSV['DiabetesFactor'] = as.factor(diabetes)
+chrCSV['EducationFactor'] = as.factor(education)
+chrCSV['BPMedsFactor'] = as.factor(BPMeds)
+chrCSV['PrevalentStrokeFactor'] = as.factor(prevalentStroke)
+chrCSV['PrevalentHyptFactor'] = as.factor(prevalentHyp)
+summary((chrCSV))
+```
+
+
+
+
+##Univariate Analysis
+#Continuos variables : cigsPerDay, totChol, sysBP, diaBP, BMI , glucose
+```{r}
+par(mfrow = c(2,4))
+contColVector = c(2,5,10,11:15)   # vector of continuos column indices
+for (i in contColVector) {
+  val = chrCSV[,i]
+  colname = colnames(chrCSV[i])
+  hist(val,
+       main= paste("Histogram of" ,colname ),
+       xlab = colname,
+       col = 'green',
+       border  = 'red', right = FALSE)
+}
+
+
+```
+
+
+##Univaritae Analysis : Numerical Data
+```{r}
+par(mfrow = c(2,4))
+contColVector = c(2,5,10,11:15)   # vector of continuos column indices
+for (i in contColVector) {
+  val = chrCSV[,i]
+  colname = colnames(chrCSV[i])
+   boxplot(val,
+       main= paste("Boxplot of" ,colname ),
+       xlab = colname,
+       col = 'green',
+       border  = 'red', right = FALSE)
+}
+
+
+```
+
+##Univariate Analysis : Categorical Data
+
+```{r}
+colnames(chrCSV)
+chrDataMelt = melt(chrCSV , measure.vars =  c('male','education','currentSmoker','BPMeds','prevalentStroke','prevalentHyp','diabetes'),na.rm = TRUE)
+
+
+
+chrDataMelt[chrDataMelt$value=="1" & chrDataMelt$variable != 'education',][,11]='Yes'
+chrDataMelt[chrDataMelt$value=="0" & chrDataMelt$variable != 'education',][,11]='No'
+chrDataMelt[chrDataMelt$value=="1" & chrDataMelt$variable == 'education',][,11]='some high school'
+chrDataMelt[chrDataMelt$value=="2" & chrDataMelt$variable == 'education',][,11]='high school/GED'
+chrDataMelt[chrDataMelt$value=="3" & chrDataMelt$variable == 'education',][,11]='some college/vocation school'
+chrDataMelt[chrDataMelt$value=="4" & chrDataMelt$variable == 'education',][,11]='college'
+patientProfilePlotCount = ggplot(chrDataMelt, mapping = aes(x = variable,fill=value))
+
+
+patientProfilePlotCount + geom_bar() + ggtitle('Patient Profile : Count') + xlab('Patient Details') + ylab('Frequency')+geom_text(stat='count', aes(label=..count..),                                                                                                    position=position_stack(vjust=0.6),size=3) + theme(axis.text.x = element_text(angle=50 , vjust = 0.5))
+
+
+```
+
+
+##Multivariate Analysis
+```{r}
+ggcorr(chrCSV[,c(2,5,10,11:15)],label = TRUE )
+ggpairs(chrCSV, columns = c(2,5,10,11:15),title = "Variable Relationships")
+
+
+```
+
+
+##Bivariate Analysis : Dependent and Target variable relationship
+```{r}
+
+
+contColVector = c(2)   # vector of continuos column indices
+#par(mfrow = c(2,4))
+
+# colnames(chrCSV)
+# plot1 = ggplot(chrCSV , mapping = aes (x = totChol , y = `TenTearCHDFactor`))
+# plot1 + geom_boxplot(fill =c('red','orange')) + scale_y_discrete(labels = c('No','Yes')) + ggtitle('Total Cholestrol Levels vs TenYearCHD')
+# 
+# plot2 = ggplot(chrCSV , mapping = aes (x = heartRate, y = `TenTearCHDFactor`))
+# plot2 + geom_boxplot(fill =c('red','orange')) + scale_y_discrete(labels = c('No','Yes')) + ggtitle('HeartRate Levels vs TenYearCHD')
+
+par(mfrow = c(4,4))
+contColVector = c(2,5,10,11:15)   # vector of continuos column indices
+for (i in contColVector) {
+  val = chrCSV[,i]
+  colname = colnames(chrCSV[i])
+  print (ggplot(chrCSV , mapping = aes (x = val , y = `TenTearCHDFactor`))+ geom_boxplot(fill =c('red','orange')) + ggtitle(paste("TenYearCHD vs ",colname))
+         + labs(x = colname))
+  
+}
+
+
+#CholVsTenYearCHD = ggplot(chrCSV , mapping = aes (x = totChol , y = `TenTearCHDFactor`))
+#CholVsTenYearCHD + geom_boxplot(fill =c('red','orange')) + scale_y_discrete(labels = c('No','Yes')) + ggtitle('Mortgage Vs Personal Loan')
+```
+
+```{r}
+
+par(mfrow = c(4,4))
+factColVector = c(18:23)   # vector of continuos column indices
+for (i in factColVector) {
+  val = chrCSV[,i]
+  colname = colnames(chrCSV[i])
+  print (ggplot(chrCSV , mapping = aes (x = val , y = `TenTearCHDFactor`))+ geom_jitter(color='red') + ggtitle(paste("TenYearCHD vs ",colname))
+         + labs(x = colname))
+  
+}
+
+```
+
+
+##Missing value treatment
+##For continuous variables take the average value of variable for each category of TenYearCHD
+##Average value of TotalCholestrol : 0:235.1 1: 245.4
+##Average value of BMI: 0:25.7 , 1 : 26.5
+##Average value of HeartRate : 0:75.8 , 1:76.5
+##Average value of Glucose: 0:80.7 , 1:89.0
+
+```{r}
+summary(chrCSV)
+
+chrCSV$totChol[is.na(chrCSV$totChol) & chrCSV$TenYearCHD==1] = mean(chrCSV$totChol[chrCSV$TenTearCHDFactor==1],na.rm=TRUE)
+chrCSV$totChol[is.na(chrCSV$totChol) & chrCSV$TenYearCHD==0] = mean(chrCSV$totChol[chrCSV$TenTearCHDFactor==0],na.rm=TRUE)
+chrCSV$BMI[is.na(chrCSV$BMI) & chrCSV$TenYearCHD==1] = mean(chrCSV$BMI[chrCSV$TenTearCHDFactor==1],na.rm=TRUE)
+chrCSV$BMI[is.na(chrCSV$BMI) & chrCSV$TenYearCHD==0] = mean(chrCSV$BMI[chrCSV$TenTearCHDFactor==0],na.rm=TRUE)
+chrCSV$heartRate[is.na(chrCSV$heartRate) & chrCSV$TenYearCHD==1] = mean(chrCSV$heartRate[chrCSV$TenTearCHDFactor==1],na.rm=TRUE)
+chrCSV$heartRate[is.na(chrCSV$heartRate) & chrCSV$TenYearCHD==0] = mean(chrCSV$heartRate[chrCSV$TenTearCHDFactor==0],na.rm=TRUE)
+chrCSV$glucose[is.na(chrCSV$glucose) & chrCSV$TenYearCHD==1] = mean(chrCSV$glucose[chrCSV$TenTearCHDFactor==1],na.rm=TRUE)
+chrCSV$glucose[is.na(chrCSV$glucose) & chrCSV$TenYearCHD==0] = mean(chrCSV$glucose[chrCSV$TenTearCHDFactor==0],na.rm=TRUE)
+chrCSV$cigsPerDay[is.na(chrCSV$cigsPerDay) & chrCSV$TenYearCHD==1] = as.integer(mean(chrCSV$cigsPerDay[chrCSV$TenTearCHDFactor==1],na.rm=TRUE))
+chrCSV$cigsPerDay[is.na(chrCSV$cigsPerDay) & chrCSV$TenYearCHD==0] = as.integer(mean(chrCSV$cigsPerDay[chrCSV$TenTearCHDFactor==0],na.rm=TRUE))
+
+```
+#Function to calculate mode
+
+```{r}
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+
+##For categorical variables use the mode value of the variable for each category of TenYearCHD
+```{r}
+getmode((chrCSV$education[chrCSV$TenTearCHDFactor==1]))
+
+
+chrCSV$education[is.na(chrCSV$education) & chrCSV$TenYearCHD==1] = getmode((chrCSV$education[chrCSV$TenTearCHDFactor==1]))
+chrCSV$education[is.na(chrCSV$education) & chrCSV$TenYearCHD==0] = getmode((chrCSV$education[chrCSV$TenTearCHDFactor==0]))
+chrCSV$BPMeds[is.na(chrCSV$BPMeds) & chrCSV$TenYearCHD==1] = getmode((chrCSV$BPMeds[chrCSV$TenTearCHDFactor==1]))
+chrCSV$BPMeds[is.na(chrCSV$BPMeds) & chrCSV$TenYearCHD==0] = getmode((chrCSV$BPMeds[chrCSV$TenTearCHDFactor==0]))
+
+summary(chrCSV)
+
+
+```
+#Outlier Treatment
+#A high degree of outliers are present in totChol , sysBP , diaBP , BMI , heartrate , glucose
+
+#function to get the percentiles
+
+```{r}
+getquantile = function(var){
+  q = quantile(var,c(0.01,0.02,0.05,0.1,0.2,0.5,0.7,0.9,0.95,0.98,1))
+}
+
+
+
+```
+
+```{r}
+colnames(chrCSV)
+attach(chrCSV)
+summary(chrCSV)
+
+#capping and flooring at 2% based on the differnces seen in the quantile values
+
+totCholQuantile = getquantile(chrCSV$totChol)
+# print (totCholQuantile)
+chrCSV$totChol[which(chrCSV$totChol<totCholQuantile[2])] <- totCholQuantile[2]
+chrCSV$totChol[which(chrCSV$totChol>totCholQuantile[10])] <- totCholQuantile[10]
+
+sysBPQuantile = getquantile(chrCSV$sysBP)
+chrCSV$sysBP[which(chrCSV$sysBP<sysBPQuantile[2])] <- sysBPQuantile[2]
+chrCSV$sysBP[which(chrCSV$sysBP>sysBPQuantile[10])] <- sysBPQuantile[10]
+# print (sysBPQuantile)
+diaBPQuantile = getquantile(chrCSV$diaBP)
+chrCSV$diaBP[which(chrCSV$diaBP<diaBPQuantile[2])] <- diaBPQuantile[2]
+chrCSV$diaBP[which(chrCSV$diaBP>diaBPQuantile[10])] <- diaBPQuantile[10]
+# print (diaBPQuantile)
+hrQuantile = getquantile(chrCSV$heartRate)
+chrCSV$heartRate[which(chrCSV$heartRate < hrQuantile[2])] <- hrQuantile[2]
+chrCSV$heartRate[which(chrCSV$heartRate > hrQuantile[10])] <- hrQuantile[10]
+# print(hrQuantile)
+
+quantile(chrCSV$glucose,c(0.30,0.80,0.84))
+print (glucoseQuantile)
+chrCSV$glucose[which(chrCSV$glucose<58)] <- 58
+chrCSV$glucose[which(chrCSV$glucose>88)] <- 88
+
+
+bmiQuantile = getquantile(chrCSV$BMI)
+chrCSV$BMI[which(chrCSV$BMI < bmiQuantile[2])] <- bmiQuantile[2]
+chrCSV$BMI[which(chrCSV$BMI > bmiQuantile[10])] <- bmiQuantile[10]
+
+
+
+```
+
+
+#splitting of data into train and test
+```{r}
+analysisData = chrCSV[,c(1:16)]
+set.seed(10)
+sample = sample.split(analysisData$TenYearCHD,SplitRatio = 0.7)
+trainSet = subset(analysisData, sample == TRUE)
+testSet = subset(analysisData, sample == FALSE)
+head(trainSet)
+head(testSet)
+```
+#Removal of unwanted variables
+
+```{r}
+
+testModel <-glm(TenYearCHD~.,data=trainSet,family = 'binomial')
+summary(testModel)
+
+step(testModel,direction="both",k=5)
+
+#variables edcation , current smoker , BPMeds, totCholestrol , diaBP , BMI and heartrate and glucose have very high P values which means that they are not significant and would not have much affect on our model. So these can be removed.
+#However instead of removing glucose I would remove diabetes as they are postively correlated
+
+newTrain = trainSet[c(1,2,5,7,8,9,11,15,16)]
+newTest = testSet[c(1,2,5,7,8,9,11,15,16)]
+newTrain$TenYearCHDFactor = as.factor(newTrain$TenYearCHD)
+newTrain = newTrain[,c(1:8,10)]  #remove the numerical TenYearCHD
+newTest$TenYearCHDFactor = as.factor(newTest$TenYearCHD)
+newTest  = newTest[,c(1:8,10)]
+
+```
+
+
+##Bivariate and Multivariate Analysis on the pre-processed data.
+#Lets take a look on how age influences sysBP and glucose
+
+```{r}
+ageVSSysBP = ggplot(newTrain,aes(x=age,y=sysBP))
+ageVSSysBP + geom_jitter(aes(col = TenYearCHDFactor)) + geom_smooth(method = "lm") + ggtitle("SystolicBP vs Age")
+ageVSGllucose = ggplot(newTrain,aes(x=age,y=glucose))
+ageVSGllucose + geom_jitter(aes(col = TenYearCHDFactor)) + geom_smooth(method = "lm") + ggtitle("Glucose vs Age")
+cigsVSSysBP = ggplot(newTrain,aes(x=cigsPerDay,y=sysBP))
+cigsVSSysBP + geom_jitter(aes(col = TenYearCHDFactor)) + geom_smooth(method = "lm") + ggtitle("SystolicBP vs CigsPerDay")
+
+```
+
+From the plots we can make the following observations:
+As the age increases the systolic blood pressure looks to be increasing. The scatteing of the green points shows higher values of SysBP postively impacts the probability of developing a CHD.
+A somewhat postive correlation can be seen between glucose level and age.
+Data suggests a strange observation as a negative correlation is seen in between CigsPerDay and sysBP.
+
+```{r}
+colnames(newTrain)
+ggcorr(newTrain[,c(2,3,7,8)],label = TRUE )
+
+```
+
+
+#Check class imabalance
+
+```{r}
+table(newTrain$TenYearCHDFactor)
+#event rate = 451/(2517+451) = 15.19 % . This are good amount of event rate to proceed further with analysis
+```
+#Build a Decision Tree Model
+```{r}
+
+#minsplit = minimum number of observations to exist in a node to attempt a split
+#minbucket = minimum number of observations in any terminal leaf node
+#cp = complexity parameter
+#xval = number of cross validation
+
+#cntrlParams = rpart.control(minsplit = 50 , minbucket = 10 , cp = 0 , xval = 10)
+dt_CP0 <- rpart(formula = TenYearCHDFactor~male+age+cigsPerDay+glucose+sysBP+prevalentStroke+diabetes+prevalentHyp, data = newTrain, method = "class", cp=0)
+
+print (dt_CP0)
+
+
+rpart.plot::rpart.plot(dt_CP0)
+#The tree shows overfitting as the CP=0
+printcp(dt_CP0)
+plotcp(dt_CP0)
+```
+
+#Pruning
+#Variables used in building the tree :
+ age          cigsPerDay   diabetes     glucose      male         prevalentHyp sysBP
+
+#Lets prune the tree at CP = 0.005
+
+```{r}
+
+
+dt_CP1 = prune(dt_CP1, cp= 0.005 ,"CP")
+printcp(dt_CP1)
+
+print (dt_CP1)
+
+
+rpart.plot::rpart.plot(dt_CP1)
+#The tree shows overfitting as the CP=0
+printcp(dt_CP1)
+plotcp(dt_CP1)
+
+```
+
+
+#model validation Decision Trees
+
+```{r}
+# Predicting on the train dataset
+newTrainPredict.class_CART <- predict(dt_CP1, newTrain, type="class") # Predicted Classes
+newTrainPredict.score_CART <- predict(dt_CP1, newTrain) # Predicted Probabilities
+
+# Create confusion matrix for train data predictions
+tab.newTrain = table(newTrain$TenYearCHDFactor, newTrainPredict.class_CART)
+tab.newTrain
+
+# Accuracy on train data
+accuracy.train_CART = sum(diag(tab.newTrain)) / sum(tab.newTrain)
+accuracy.train_CART
+#85.9% accuracy on training data
+
+PredictClass = predict(dt_CP1,newTest,type = "class")
+PredictScore = predict(dt_CP1,newTest)
+
+tab.newTest = table(newTest$TenYearCHDFactor,PredictClass)
+tab.newTest
+
+accuracy.test_CART = sum(diag(tab.newTest))/sum(tab.newTest)
+accuracy.test_CART
+
+
+sensitivityDT =tab.newTest[1,1]/(tab.newTest[1,1]+tab.newTest[2,1])
+sensitivityDT
+specificity = tab.newTest[2,2]/tab.newTest[2,2]+tab.newTest[1,2]
+specificity
+
+
+
+```
+
+#accuracy : 85.64 %
+#sensitivity : 86.3 %
+#Specificity : 14%
+
+
+##Random Forest
+#This model is giving horrible results
+
+```{r}
+set.seed(10)
+rf_model1 = randomForest(
+  TenYearCHDFactor ~ male+age+cigsPerDay+glucose+sysBP+prevalentStroke+diabetes+prevalentHyp,
+  data = newTrain,
+  ntree = 200,
+  nodesize = 10,
+  importance = TRUE
+  )
+
+print(rf_model1)
+plot(rf_model1)  # 30 number of trees are more than enough
+```
+
+
+```{r}
+rf_model2 = tuneRF(x = newTrain[,c(1:8)], # matrix or data frame of predictor/independent variables
+                  y = newTrain$TenYearCHDFactor, # response vector (factor for classification, numeric for regression)
+                  mtrystart = 2, # starting value of mtry
+                  stepfactor=0.5, # at each iteration, mtry is inflated (or deflated) by this value
+                  ntree=15, # number of trees built for each mtry value
+                  improve=0.0001, # the (relative) improvement in OOB error must be by this much for the search to continue
+                  nodesize=10, # Minimum size of terminal nodes
+                  trace=TRUE, # prints the progress of the search
+                  plot=TRUE, # to get the plot of the OOB error as function of mtr
+                  doBest=TRUE, # return a forest using the optimal mtry found
+                  importance=TRUE # 
+                  )
+```
+
+
+
+
+
+```{r}
+#Logistic Regression
+
+lgmodel <- glm(TenYearCHDFactor~male+age+cigsPerDay+prevalentStroke+prevalentHyp+diabetes+sysBP+glucose, data = newTrain , family=binomial(link="logit"))
+lgmodel
+newTest = newTest[,1:9]
+lg_predictions <- predict(lgmodel,newTest,type="response")
+```
+
+
+```{r}
+#NaiveBayes
+nbmodel <- naiveBayes(TenYearCHDFactor~male+age+cigsPerDay+prevalentStroke+prevalentHyp+diabetes+sysBP+glucose, data = newTrain)
+nbmodel
+nb_predictions <- predict(nbmodel,newTest)
+
+```
+
+
+
+```{r}
+
+#KNN
+trControl <- trainControl(method  = "cv", number  = 10)
+knnmod <- caret::train(TenYearCHDFactor ~ .,
+                       method     = "knn",
+                       tuneGrid   = expand.grid(k = 2:20),
+                       trControl  = trControl,
+                       metric     = "Accuracy",
+                       preProcess = c("center","scale"),
+                       data       = newTrain)
+knnmod
+knn_predictions <- predict(knnmod,newTest)
+
+```
+
+```{r}
+#Confusion matrix
+y_pred_numl <- ifelse(lg_predictions > 0.15, 1, 0)
+y_predl <- factor(y_pred_numl, levels=c(0, 1))
+confusionMatrix(newTest$TenYearCHDFactor,y_predl)
+confusionMatrix(newTest$TenYearCHDFactor,nb_predictions)
+confusionMatrix(newTest$TenYearCHDFactor,knn_predictions)
+```
+
+
+```{r}
+
+newTrain$TenYearCHDFactor <- as.character(newTrain$TenYearCHDFactor)
+newTrain$TenYearCHDFactor
+mod.boost <- gbm(TenYearCHDFactor ~ .,data=newTrain, distribution=
+                      "bernoulli",n.trees =5000 , interaction.depth =4, shrinkage=0.01)
+summary(mod.boost)
+boost.pred <- predict(mod.boost, newTest,n.trees =5000, type="response")
+
+y_pred_num <- ifelse(boost.pred > 0.15, 1, 0)
+y_pred <- factor(y_pred_num, levels=c(0, 1))
+confusionMatrix(newTest$TenYearCHDFactor,y_pred)
+```
+
+```{r}
+
+pred.lg <- prediction(lg_predictions, newTest$TenYearCHDFactor)
+perf.lg <- performance(pred.lg, "tpr", "fpr")
+plot(perf.lg)
+KS <- max(attr(perf.lg, 'y.values')[[1]]-attr(perf.lg, 'x.values')[[1]])
+KS
+plot(perf.lg,main=paste0(' KS=',round(KS*100,1),'%'))
+lines(x = c(0,1),y=c(0,1))
+
+
+## Area Under Curve
+auc <- performance(pred.lg,"auc"); 
+auc <- as.numeric(auc@y.values)
+auc
+```
+
