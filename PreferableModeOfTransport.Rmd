@@ -1,0 +1,571 @@
+---
+title: "Cars Project Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+#set the working directory
+```{r}
+setwd('c:/ddrive/Vijay/Learning/Course4_PredictiveModelling')
+install.packages('reshape2')
+library('reshape2')
+install.packages('ggplot')
+library(ggplot2)
+library(grid)
+install.packages("mice")
+library(mice)
+install.packages('corrplot')
+library(corrplot)
+install.packages('caTools')
+library(caTools)
+install.packages("car")
+library(car)
+require(randomForest)
+library(caret)
+install.packages('pscl')
+library('pscl')
+install.packages('InformationValue')
+library(InformationValue)
+library(class)
+library(dplyr)
+library(ipred)
+library(rpart)
+library(xgboost)
+
+
+
+```
+
+
+
+
+#read the csv file
+```{r}
+carsCSV = read.csv("Cars-dataset.csv",header = TRUE)
+attach(carsCSV)
+```
+
+
+#EDA : Variable Study
+```{r}
+str(carsCSV)
+summary(carsCSV)
+```
+
+#Total number of records : 418
+#Predictor Variables : 8
+#Target variable : 1
+#NUmber of predictor variables : 
+#Engineer,MBA and License are categorical ordinal variables with 2 levels each (yes/no)
+#Hence we can convert them to factors from numeric.
+
+```{r}
+
+carsCSV$Engineer = as.factor(carsCSV$Engineer)
+carsCSV$MBA = as.factor(carsCSV$MBA)
+carsCSV$license = as.factor(carsCSV$license)
+summary(carsCSV)
+str(carsCSV)
+```
+
+#So now we have 4 numerical variables and 5 categorical variables.
+#Out of 5 categorical variables , 4 are ordinal variables with 2 levels while 1 is an ordinal variable with 3 levels.
+#The employee age ranges from 18 to 43 years.
+#There are a total of 297 males and 121 females. So this dataset looks to be a little biased dataset.
+#There are a total of 313 engineers and 105 non-engineers.
+#There are a total of 109 MBAs and 308 non MBAs.
+#The number of work experience ranges from 0 to 24 years.
+#The employee salary ranges from 6.5 to 57.0. Lets assume it to be in thousands.
+#The distance value ranges from 3.20 to 23.40. Lets assume it be in kilometers.
+#There are a total of 85 employees who have the driving license and 333 who don't.
+#Of all the employees , 83 travel by 2wheeler , 35 travel by car and 300 travel by public transport.
+#The 3rd Quartile and max values of Work Exp and Salary variables give a hint of outliers.
+
+
+#Record number 243 has MBA as NA. Since this is a compartively smaller dataset with only one NA, just a visual glance will help in identifying. For bigger #datasets a for loop can be used.
+
+
+#EDA : Univariate Analysis : Categorical Variables
+
+```{r}
+names(carsCSV)
+
+carsDataMelt = melt(carsCSV , measure.vars =  c('Gender','Engineer','MBA','license','Transport'),na.rm = TRUE)
+carsDataMelt[carsDataMelt$value=="1",][,6]='Yes'
+carsDataMelt[carsDataMelt$value=="0",][,6]='No'
+employeeProfilePlotCount = ggplot(carsDataMelt, mapping = aes(x = variable,fill=value ))
+
+employeeProfilePlotCount + geom_bar() + ggtitle('Employee Profile : Count') + xlab('Employee Details') + ylab('Frequency')+geom_text(stat='count', aes(label=..count..),                                                                                                    position=position_stack(vjust=0.5),size=3) +
+
+```
+
+#Of 418 employees 121 are Females and 297 are Males.
+#Of 418 employees 313 are Engineers while 105 are not.
+#Of 418 employees 109 are MBAs , 308 are non-MBAs and for 1 of them their isn't any info.
+#Of 418 employees 85 have licenses , while 333 don't.
+#Of 418 employees 300 use public transport to commute .35 use car while 83 use 2wheeler.
+
+
+```{r}
+library(data.table)
+library(scales)
+
+
+employeeTable = data.frame(EmployeeType = c('Females','Males','Engineers','MBAs','HaveDrivingLicense','UseCarTransport'),
+            Count=c(121,297,313,109,85,300),
+            Percentage = c((121/418)*100,(297/418)*100,(313/418)*100,(109/418)*100,(85/418)*100,(35/418)*100) )
+
+
+
+employeeProfilePlotPercentage = ggplot(employeeTable, mapping = aes(x = EmployeeType , y = Percentage))
+employeeProfilePlotPercentage + geom_bar(stat = 'identity' , fill = c('Red','Green' ,'Purple','Yellow','Orange','Violet')) + geom_text(mapping = aes(label=paste0(round(Percentage,2),'%')),vjust=1 , color = 'Black') + ggtitle('Employee Profile : Percentage') + xlab('Employee Details')
+                                                                        
+```
+
+Almost 75% of the employees are engineers and around 26% are MBAs
+Male to Female % is 71 : 29
+Only about 20% of employees have drivers license.
+Only 8.37% use Car as a mode of transport.
+
+
+#EDA : Univariate Analysis : Numerical Variables
+
+```{r}
+carsDataMelt1 = melt(carsCSV, measure.vars = -c(2,3,4,8,9))
+
+employeeProfilePlotValueRanges = ggplot(carsDataMelt1,mapping = aes(y=value))
+employeeProfilePlotValueRanges + geom_boxplot(fill = c('Red','Green','Blue','Pink'), bin=5) + facet_wrap(~variable , ncol = 4) + theme(panel.spacing = unit(1, "lines"),axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) 
+
+summary(carsCSV)
+
+
+```
+
+#So from the above plot and the 5 point summary it is quite evident that all the 4 continuous variables have outliers and are not normally distributed.
+#So these variables will have to be scaled and noramlised before proceeding to model building.
+
+
+#EDA : Multivariate Analysis : Numeircal Variables.
+
+```{r}
+carsCorrMatrix = cor(carsCSV[-c(2,3,4,8,9)])
+corrplot(carsCorrMatrix,method='circle',type='upper',order='FPC')
+```
+
+#From the above plot we can see that Age , Salary and Work experience have a high amount of correlation with each other.
+#So using just one of them is advisable along with the Distance variable.
+
+
+
+
+#Challenging aspect of the problem.
+
+  I feel there are 3 challenging aspects:
+   1. Choosing the right variable out of Age/Salary/WorkExperience.
+      Answer to this is more of intuitive and I would go with Salary. Had there been a lot more variables and a bigger dataset then dimensionality 
+      reduction technique like PCA could have been used.
+   2. Normalizing the Salary values (removing the outliers):
+      From the box plot we can see that there are lot of outliers and data is skewed to the right.
+      So , we need to normalize the data by transforming the variable by using logarithm / square root.
+   3. The dependent variable Y has almost 92% of data points biased towards "No car for transport". This is a highly imbalanced dataset hence a model         tuning method like adaboost will have to be used to make the model more accurate.
+   
+
+# Data Preparation1 : NA values treatment.
+#From the data summary we have seen that only the MBA field has one NA value.
+#Let's try to impute the missing value.
+   
+```{r}
+
+data4Analysis = carsCSV
+
+#rename the column names
+names(data4Analysis)[1] = "age_in_years"
+names(data4Analysis)[2] = "gender"
+names(data4Analysis)[3] = "is_an_engineer"
+names(data4Analysis)[4] = "is_an_mba"
+names(data4Analysis)[5] = "work_exp_in_years"
+names(data4Analysis)[6] = "salary_in_thousands"
+names(data4Analysis)[7] = "travel_distance_in_kms"
+names(data4Analysis)[8] = "has_license"
+names(data4Analysis)[9] = "use_car_transport"
+
+data4Analysis$is_an_engineer = as.factor(data4Analysis$is_an_engineer)
+data4Analysis$is_an_mba = as.factor(data4Analysis$is_an_mba)
+data4Analysis$has_license = as.factor(data4Analysis$has_license)
+
+#transform the dependent variable from 3 level to 2 level categorical variable
+data4Analysis$use_car_transport = ifelse(data4Analysis$use_car_transport =="Car" ,1,0)
+data4Analysis$use_car_transport = as.factor(data4Analysis$use_car_transport)
+
+summary(data4Analysis)
+
+#missing value treatment
+is.na(data4Analysis)
+mbaNA = data4Analysis[243,]
+print (mbaNA)
+
+impute = mice(data4Analysis)  # since only 1 categorical variable has NA, the mice function will use logistic regression to determine the missing value.
+
+
+data4Analysis = complete(impute,5)
+summary(data4Analysis)
+
+#discarding variables age and work experience and keeping only salary to avoid multicollinearity.
+data4Analysis = data4Analysis[,-c(1,5)]
+
+#deciding upon model accepted model accuracy
+#we know that 72% of employees use public transportation , so we would expect an accuracy of atleast 72%
+
+
+#lets try to find out a significant predictor variable based on visual analysis
+#higer salary is definitley a driving factor to use car as a transport.
+plot(data4Analysis$use_car_transport,data4Analysis$salary_in_thousands , sub = "Variable Dependency : Transport vs Salary" , xlab="Tranport by Car" , ylab ="Salary in Thousand")
+
+#having an MBA  doesnt look to be highly significant 
+plot(data4Analysis$use_car_transport,data4Analysis$is_an_mba)
+
+#There isn't much difference in the percentage ratio of males:females who come by car.
+plot(data4Analysis$use_car_transport,data4Analysis$gender)
+table(data4Analysis$use_car_transport,data4Analysis$gender)
+
+
+#We can see that employees staying beyond 15 kms usually prefer to come by car.
+plot(data4Analysis$use_car_transport,data4Analysis$travel_distance_in_kms, sub = "Variable Dependency : Transport vs Distance" , xlab="Tranport by Car" , ylab ="Distance in KMS "))
+      
+
+#outlier treatment
+quantile(data4Analysis$salary_in_thousands,c(0.01,0.02,0.03,0.1,0.2,0.3,0.4,0.50,0.6,0.7,0.8,0.9,0.95,0.99,1))
+quantile(data4Analysis$travel_distance_in_kms,c(0.01,0.02,0.03,0.1,0.2,0.3,0.4,0.50,0.6,0.7,0.8,0.9,0.95,0.99,1))
+
+#There isnt significance difference in higher percentiles for the above 2 variables and morever both the variables are highly significant 
+#in predicting the target variable with the higher values showing a trend of employee uses car as a transport mode.
+#So , its advisable not to remove the outliers as they might affect the model accuracy.
+
+
+
+```
+
+#Data Preparation : Training Data and Test Data
+```{r}
+table(data4Analysis$use_car_transport)
+carUse = (35/418)*100
+print (carUse)
+#Since the dataset is being highly imbalanced dataset , while creating our training data we will ensure that we get an equal percentage of data point from both classes
+
+set.seed(100) # set seed
+cars_ones = data4Analysis[which(data4Analysis$use_car_transport == "1"),]
+cars_zeros <- data4Analysis[which(data4Analysis$use_car_transport == "0"),]
+
+sampleCars_Yes = sample.split(cars_ones$use_car_transport,SplitRatio=0.7)
+trainSet_Yes = subset(cars_ones, sampleCars_Yes == TRUE)
+testSet_Yes = subset(cars_ones, sampleCars_Yes == FALSE)
+sampleCars_No = sample.split(cars_zeros$use_car_transport,SplitRatio=0.7)
+trainSet_No = subset(cars_zeros, sampleCars_No == TRUE)
+testSet_No = subset(cars_zeros, sampleCars_No == FALSE)
+
+trainSet = rbind(trainSet_Yes,trainSet_No)
+testSet = rbind(testSet_Yes , testSet_No)
+
+```
+
+#Logistic Regression
+
+``` {r,echo=FALSE} 
+
+#MacFadden's R2
+Pseudo.R2=function(object){
+  stopifnot(object$family$family == "binomial")
+  object0 = update(object, ~ 1)
+  wt <- object$prior.weights # length(wt)
+      y = object$y # weighted
+  ones = round(y*wt)
+  zeros = wt-ones
+  fv <- object$fitted.values   # length(fv)
+      if (is.null(object$na.action)) fv0 <- object0$fitted.values else
+        fv0 <- object0$fitted.values[-object$na.action] # object may have missing values
+  resp <- cbind(ones, zeros)
+  Y <- apply(resp, 1, function(x) {c(rep(1, x[1]), rep(0, x[2]))} )
+  if (is.list(Y)) Y <- unlist(Y) else Y <- c(Y)
+  # length(Y); sum(Y)
+  fv.exp <- c(apply(cbind(fv, wt), 1, function(x) rep(x[1], x[2])))
+  if (is.list(fv.exp)) fv.exp <- unlist(fv.exp) else fv.exp <- c(fv.exp)
+  # length(fv.exp)
+  fv0.exp <- c(apply(cbind(fv0, wt), 1, function(x) rep(x[1], x[2])))
+  if (is.list(fv0.exp)) fv0.exp <- unlist(fv0.exp) else fv0.exp <- c(fv0.exp)
+  (ll = sum(log(dbinom(x=Y,size=1,prob=fv.exp))))
+  (ll0 = sum(log(dbinom(x=Y,size=1,prob=fv0.exp))))
+
+  n <- length(Y)
+  G2 <- -2 * (ll0 - ll)
+  McFadden.R2 <- 1 - ll/ll0
+  CoxSnell.R2 <- 1 - exp((2 * (ll0 - ll))/n) # Cox & Snell / Maximum likelihood pseudo r-squared
+  r2ML.max <- 1 - exp(ll0 * 2/n)
+  Nagelkerke.R2 <- CoxSnell.R2/r2ML.max  # Nagelkerke / Cragg & Uhler's pseudo r-squared
+
+  out <- c(llh = ll, llhNull = ll0, G2 = G2, McFadden = McFadden.R2,
+           r2ML = CoxSnell.R2, r2CU = Nagelkerke.R2)
+  out
+}
+```
+
+
+
+```{r}
+colnames(data4Analysis)
+
+
+cars.LogReg = glm(use_car_transport~gender+is_an_engineer+is_an_mba+salary_in_thousands+travel_distance_in_kms+has_license , data = trainSet , family=binomial(link="logit"))
+
+summary(cars.LogReg)
+
+#none of the categorical variables are significant enough to include them in the model.  Let's double check this quickly by running a variable importance function
+
+fit = randomForest(use_car_transport ~ ., data= trainSet)
+varImp(fit)
+varImpPlot(fit,type=2)
+
+#Also lets take a look at mutlicollinearity within the independent variables
+
+vif(cars.LogReg)
+
+#The values indicate there isn't any multicollinearity.
+
+#let remove the insignificant variable and rebuild the model.
+
+cars.LogReg_1 = glm(use_car_transport~salary_in_thousands+travel_distance_in_kms, data = trainSet , family=binomial(link="logit"))
+summary(cars.LogReg_1)
+
+#Salary is the most suitable predictor variable.
+
+cars.LogReg_1$fitted.values
+#The actual probability value will not mean anything in itself but we would get an idea by plotting them that where exactly does a threshold lie.
+
+#From the plot we can find that , anything above 0.6 can be classified as "Use Cars for public transport"
+plot(trainSet$use_car_transport,cars.LogReg_1$fitted.values)
+
+#lets run the plogis function on the test dataset using the model to predict the values.  This will give the probabilities for each of test data point
+carsPredictedTraining <- plogis(predict(cars.LogReg_1, trainSet))  # predicted scores
+print (carsPredictedTraining)
+
+#lets get the optimal cutoff : which approximatelly equal to 0.4
+optCutOff <- optimalCutoff(trainSet$use_car_transport, carsPredictedTraining)[1] 
+print(optCutOff)
+
+#run plogis function on test data
+carsPredictedTest <- plogis(predict(cars.LogReg_1, testSet))  # predicted scores
+print (carsPredictedTest)
+
+
+#The summary shows that variables 
+```
+Both the predictor variables are highly significant.
+An unit increase in 
+  1.salary_in_thousands results in 34% increase in log(odds) which essentially means an increase of 73% in commuting by car.
+  2.travel_distance_in_kms result in 102% increase in log(odds) which essentially means an increase of  57% in commuting by car
+
+#Checking MacFadden's score
+```{r}
+pR2(cars.LogReg_1)
+```
+
+#McFadden's score is really high and it could very well be due to the data being imbalanced.
+
+#Model Performance for Logistic Regression.
+
+
+
+```{r}
+
+#ROC
+logROCTrain = plotROC(trainSet$use_car_transport, carsPredictedTraining) #on training data
+logROCTest = plotROC(testSet$use_car_transport, carsPredictedTest) #on training data
+print (logROCTest,logROCTrain)
+
+#Concordance-Discordance
+logCon=Concordance(testSet$use_car_transport, carsPredictedTest)
+print (logCon)
+
+#Confusion Matrix
+logConf = confusionMatrix(testSet$use_car_transport, carsPredictedTest, threshold = optCutOff)
+logSens = sensitivity(testSet$use_car_transport, carsPredictedTest, threshold = optCutOff)
+logSpec = specificity(testSet$use_car_transport, carsPredictedTest, threshold = optCutOff)
+
+print (logConf)
+print (logSens)
+print (logSpec)
+
+#The area under curve for ROC on training is 97.7% while on test is 95.2% and both of them can be considered good.
+#The concordance value of 99.1% is really good.
+#The Sensitivity and Specificity of 0.90 and 0.91 indicate a good fit.
+
+
+
+```
+
+
+#KNN
+
+```{r}
+colnames(trainSet)
+#Here we would be using scaled values of the 2 significant variables.
+
+
+trainSet_scaled = trainSet %>% mutate_at(c(4,5), funs(c(scale(.))))
+testSet_scaled = testSet %>% mutate_at(c(4,5), funs(c(scale(.))))
+carsKNN = knn(trainSet_scaled[c(4,5)] , testSet_scaled[c(4,5)] , trainSet$use_car_transport , k=3) 
+print (carsKNN)
+
+
+table(testSet$use_car_transport,carsKNN)
+
+
+
+
+
+```
+
+KNN Model using a different version of KNN
+```{r}
+carsKNN3 <- knn3(use_car_transport~salary_in_thousands+travel_distance_in_kms,trainSet_scaled[c(-1)],k = 3)
+carsKNN3Predict <- predict(carsKNN3, testSet_scaled[c(4,5)], type = "prob")[,2] 
+summary(carsKNN3Predict) 
+
+plot(testSet$use_car_transport,carsKNN3Predict)
+
+
+
+```
+
+
+#Model Performance : KNN
+```{r}
+
+#The optimal cutoff probability from the plot looks to be around 0.4. We will use the same optimal cut off that we found in Logistic Regression
+#Based on the cutoff lets predict the target variable value on the test sample.
+
+testSet$predicted_response <- factor(ifelse(carsKNN3Predict >= optCutOff, "1", "0"))
+
+KNNConf =  confusionMatrix(testSet_scaled$use_car_transport, carsKNN3Predict , threshold = optCutOff)
+
+
+
+KNNSens = sensitivity(testSet_scaled$use_car_transport, carsKNN3Predict , threshold = optCutOff)
+KNNSpec = specificity(testSet_scaled$use_car_transport, carsKNN3Predict , threshold = optCutOff)
+
+print (KNNConf)
+
+print (KNNSens)
+print (KNNSpec)
+
+
+
+
+
+KNNROCTest = plotROC(testSet_scaled$use_car_transport, carsKNN3Predict) #on testing data
+
+
+KNNCon=Concordance(testSet_scaled$use_car_transport, carsKNN3Predict)
+print (KNNCon)
+
+
+#AUROC = 99.9%
+#The concordance value of 99.84% is really good.
+#Here we are getting a sensitivity of 90.09% and specificity of 100% which are great values but this can gain be due to biasness in the data.
+
+```
+
+
+
+
+
+
+
+
+#Naive Bayes
+Naive bayes cannot be used in this case because of 2 reason:
+   It works very well in case of categorical variables , but we have seen that none of our categorical variables are significant variables.
+   It can still work with numerical variables but it assumes that the values are normally distributed, which we have seen are not.
+  
+So to get Naive Bayes working with this dataset , we can create categorical dummy variables by binning the values from "salary_in_thousands" and "distance_in_kms" variable.
+Code below shows how to bin a variable. Once we have this done , we can build a  Naive-Bayes model.
+
+```{r}
+
+binSalary <- cut(data4Analysis$salary_in_thousands, breaks = 3, labels = c('Less than 20','Between 20 to 40','Greater than 40'))
+binDistance <- cut(data4Analysis$travel_distance_in_kms, breaks = 3, labels = c('Less than 20','Between 20 to 40','Greater than 40'))
+
+df_NB = data.frame(binSalary,binDistance)
+
+```
+
+
+
+#Model Tuning : Bagging
+
+```{r}
+
+colnames(trainSet)
+Bagging = bagging(use_car_transport~salary_in_thousands+travel_distance_in_kms,data=trainSet,control=rpart.control(maxdepth=5, minsplit=3))
+
+
+colnames(testSet_scaled)
+testSet$predicted_response_bagging = predict(Bagging, testSet)
+
+table(testSet$use_car_transport , testSet$predicted_response_bagging)
+
+sens = 9/(2+9)
+print (sens)
+
+spec = 113/(113+2)
+print (spec)
+
+#Bagging is giving same result as KNN
+
+
+```
+
+#Model Tuning : Boosting
+
+
+```{r}
+# XGBoost works with matrices that contain all numeric variables
+# we also need to split the training data and label
+
+trainSet_boosting_depVar  = as.matrix(trainSet[c(4:5)]) 
+trainSet_boosting_indVar = as.matrix(trainSet[c(7)])
+testSet_boosting_depVar  = as.matrix(testSet[c(4:5)]) 
+
+xgb = xgboost(
+  data = trainSet_boosting_depVar,
+  label = trainSet_boosting_indVar,
+  eta = 0.001,#this is like shrinkage in the previous algorithm
+  max_depth = 3,#Larger the depth, more complex the model; higher chances of overfitting. There is no standard                      value for max_depth. Larger data sets require deep trees to learn the rules from data.
+  min_child_weight = 3,#it blocks the potential feature interactions to prevent overfitting
+  nrounds = 10000,#controls the maximum number of iterations. For classification, it is similar to the number of                       trees to grow.
+  nfold = 5,
+  objective = "binary:logistic",  # for regression models
+  verbose = 0,               # silent,
+  early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
+)
+
+testSet$xgb.pred.class <- predict(xgb, testSet_boosting_depVar)
+
+
+table(testSet$use_car_transport , testSet$xgb.pred.class> optCutOff)
+
+
+#This model is giving 100% accuracy and is better than the KNN model prediction.
+
+
+
+
+
+
+```
+
+
+
+
