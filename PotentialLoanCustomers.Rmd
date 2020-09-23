@@ -1,0 +1,428 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+##set working directory and load libraries
+setwd('c:/ddrive/Vijay/Learning/Course3_MachineLearning')
+library(readxl)
+install.packages('dplyr')
+library(dplyr)
+install.packages('ggplot2')
+library(ggplot2)
+library(reshape2)
+install.packages("NbClust")
+library(NbClust)
+library(cluster)
+install.packages('caTools')
+library(caTools)
+install.packages("rpart")
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(data.table)
+#?read_xlsx
+# library(ROCR)
+# library(ineq)
+# 
+# install.packages("ROCR")
+# install.packages("IN")
+```
+
+
+```{r}
+##load the data
+variableDesc = read_xlsx('Thera Bank_Personal_Loan_Modelling-dataset-1.xlsx',sheet = 1, range = 'A4:B17' , col_names = FALSE)
+bankData = read_xlsx('Thera Bank_Personal_Loan_Modelling-dataset-1.xlsx',sheet=2)
+head(bankData)
+attach(bankData)
+```
+
+
+```{r}
+##variable exploration
+str(bankData)
+print(dim(bankData))
+naPerCol = sapply(bankData, function(y) sum(is.na(y)))
+print (naPerCol)
+```
+
+All the variables in the dataframe area marked as numeric. We really don't want all to be numeric because the numbers don't mean
+measures. ID , Personal Load , Securities Account , CD Account , Online , CreditCard fields can be marked as categorical.
+Also there are 18 rows in "Family members" column which have NA values
+
+```{r}
+bankData$ID = as.factor(bankData$ID)
+bankData[,10:14] = lapply(bankData[,10:14], factor)
+summary(bankData)
+str(bankData)
+```
+
+What we know so far from the data:
+1. The customers age range is from 23 to 67.
+2. There seems to be some wrong feeding of data in Experience column as minimum experience is negative. So this will need some data cleansing. It looks to be a typo because if you look at the age of the customers they are in their in early 20s and hence it will be safe to make the remove the negative sign
+
+
+```{r}
+# clean the negative values in the Experience column
+bankData$`Experience (in years)` = pmax(bankData$`Experience (in years)`,(bankData$`Experience (in years)`*-1))
+
+#handle the misisng values
+bankData$`Family members`[is.na(bankData$`Family members`)] = median(bankData$`Family members` , na.rm = TRUE)
+
+sum(is.na(bankData))
+```
+
+
+
+Univariate and Bivariate Ananlysis
+
+```{r}
+#Let plot the age range
+bankDataAgePlot = ggplot(data = bankData,mapping = aes(`Age (in years)`))
+bankDataAgePlot + geom_histogram(stat='bin',breaks= seq(20,70,by=5), aes(fill = ..count..)) +scale_fill_gradient("Count", low="green", high="red") + ggtitle("Customers Age Distribution") +ylab('Frequency') + xlab('Age (in years)')
+```
+
+An approximate equal distribution can been for customers within 30-60 age group.
+
+
+```{r}
+#Lets plot the experience range
+bankDataIncomePlot = ggplot(data = bankData , mapping = aes(`Income (in K/month)`))
+bankDataIncomePlot + geom_density(outline.type = 'full' , fill = 'red') + ggtitle("Income Distribution") + xlab('Income in Thousands') + ylab('Density') 
+
+
+```
+
+#The major customer base has Monthly income around 25000
+
+
+```{r}
+?melt
+bankDataMelt = melt(bankData, id.vars = 'ID' , measure.vars = c('CreditCard','Personal Loan','Securities Account','CD Account','Online'))
+bankDataIDPlot = ggplot(bankDataMelt, mapping = aes(x = variable,fill=value ))
+bankDataIDPlot + geom_bar() + ggtitle('Customer Profile') + xlab('Banking Services') + ylab('Frequency')
+```
+
+#This plot gives a nice comparison of the number of customers who have and have not enrolled for some of the banking services. We can see that the number of customers who have personal loan with the bank are way to less.
+Lets look further and see if we can find out any pattern between different demographic factors and personal loans
+
+
+
+
+```{r}
+# Lets see the relationship of age on personal loans
+
+bankDataAgeVsPL = ggplot(data = bankData , mapping = aes(y = `Personal Loan` , x= `Age (in years)`))
+bankDataAgeVsPL + geom_boxplot(fill = c('red', 'green')) + ggtitle("Personal Loan vs Age") +scale_y_discrete(labels =c('No','Yes'))
+
+
+```
+
+Here we see that there isnt any particular dependency on the age for taking personal loan but the whiskers do suggest customers start taking loans once they are above 25 years of age.
+
+```{r}
+# Lets see the relationship of credit card holders vs personal loan
+bankDataCCVsPL = ggplot(data = bankData , mapping = aes(y = `Personal Loan` , x = CreditCard))
+bankDataCCVsPL + geom_jitter() + ggtitle('CreditCard vs Personal Loan') +scale_y_discrete(labels =c('No','Yes')) +scale_x_discrete(labels =c('No','Yes'))
+
+
+```
+
+There are a considerable amount of customers with credit card who have opted for personal loans , hence its a good option to pitch to the credit card holders to go for  a personal loan.
+
+
+```{r}
+#Lets find the relationship of income with personal loan
+
+
+
+bankDataIncomeVsPL = ggplot(bankData, mapping = aes(y = `Income (in K/month)` , x = `Personal Loan`))
+bankDataIncomeVsPL + geom_dotplot(binwidth = 1 , binaxis = 'y') + ggtitle('IncomeVsPersonalLoan') + scale_x_discrete(labels =c('No','Yes')) + ylab("Annual Income in Thousands") + facet_grid(~(bankData$`Family members` )) + xlab("Personal Loan")
+
+bankData %>% group_by(bankData$`Family members`, bankData$`Personal Loan`
+                          ) %>% summarise(Count=n())
+```
+
+
+Customer base with income more than 100K $ show a tendency of opting for personal loans.
+Also the bank customer base  with family members more than 2 seem to have annual income less than 150k but the number of personal loans looks to be same as other. Such customers could likely be potential defaulters in future and hence a close watch on them is a good precautinory measure.
+Customers in low income range are a good potential target if they can be lured with attractive schemes(low interest , flexible emi etc)
+
+
+
+```{r}
+#Lets see how mortgages affect personal loans
+bankDataMortgageVsPL = ggplot(bankData , mapping = aes (x = Mortgage , y = `Personal Loan`))
+bankDataMortgageVsPL + geom_boxplot(fill = c('red','orange')) + scale_y_discrete(labels = c('No','Yes')) + ggtitle('Mortgage Vs Personal Loan')
+
+```
+
+The plot shows that more than 75 % of customers who took loans have mortgages less than 200K and more than 50% didnt have any mortgage at all.
+
+The data analysis so far has shown that the probability of opting for personal loan is not fully dependent on one variable , hence a more in depth study of data is needed , which can be done using differnt machine learning algorithms 
+
+
+
+###################Customer Segmentation########################
+
+```{r}
+#reload the bank data , because for doing clustering , it is advisable all the variables to be of numerical type as we will be scaling the data
+
+
+bankData = read_xlsx('Thera Bank_Personal_Loan_Modelling-dataset-1.xlsx',sheet=2)
+
+#Since we want to do customer segmentation and and devise a customer profile , the zip code field can be omitted.
+bankData = bankData[-c(5)]
+
+# clean the negative values in the Experience column
+bankData$`Experience (in years)` = pmax(bankData$`Experience (in years)`,(bankData$`Experience (in years)`*-1))
+
+#handle the misisng values
+bankData$`Family members`[is.na(bankData$`Family members`)] = median(bankData$`Family members` , na.rm = TRUE)
+#str(bankData)
+
+##lets scale the data so as to remove the effect of dominating variable (bigger values)
+bankDataScaled = scale(bankData[c(2:13)])  # we dont need customer id
+print(bankDataScaled)
+
+#lets calculate distance. Conputationaly very expensive , it will generate (5000*4999)/2 data points
+distMatrixScaled = dist(bankDataScaled, method = 'euclidean')
+#print (distMatrixScaled)
+
+#we will use the ward.D  linkage method to find the clusters which uses the within group variance to merge the data points
+bankDataCluster = hclust(distMatrixScaled , method = 'average')
+plot(bankDataCluster)
+rect.hclust(bankDataCluster , k = 3)
+bankData$hclust_cluster =  cutree(bankDataCluster , k=3)
+
+#lets try with a differnt linkage method and see the cluster
+bankDataCluster_Ward = hclust(distMatrixScaled , method = 'ward.D2')
+plot(bankDataCluster_Ward)
+rect.hclust(bankDataCluster_Ward , k = 3)
+
+
+```
+
+
+From both the dendrogram , we can conclude of dividing the customer base into 2/3 major groups. In heirarchical clustering, it is important to know some domain knowledege , as we have to intuitively decide the number of clusters. The traditional approach is to use cut the tree at a point from wherein we traverse the maximum distance up and down without any intersection. Hence cluster 2/3.
+
+The best way to determine the clusters is to look for how the variance within the group changes. It makes sense to keep on splitting the data till a point the variance within the groups does not change much. IN K-means clustering we can find out the within group variance and based on that figure out the best possible cluster value
+
+
+```{r}
+seed = 1000
+set.seed(seed)
+
+
+totWss = rep(0,8)
+
+for (k in 2:10) {
+  set.seed(seed)
+  bankDataCluster_KMeans =  kmeans(bankDataScaled, centers = k , nstart = 5)
+  totWss[k] = bankDataCluster_KMeans$tot.withinss
+}
+print(totWss)
+plot(c(1:10),totWss,type='b')
+
+#so since now we have establshed the nucmber of clusetrs as 3 we can plot them
+bankDataCluster_KMeans =  kmeans(bankDataScaled , centers = 3 , nstart = 5)
+clusplot(bankDataScaled , bankDataCluster_KMeans$cluster , color = TRUE , shade= TRUE , line=1)
+
+
+```
+
+
+We use an elbow method to find out the optimal cluster in which data can be split and from the plot we can  predict the number to be 3 (similar to heirarchichal). Thus by splitting the data points within different groups/clusters we can broadly classify the customer base in as many cases and perform some analysis on the categorised data
+
+```{r}
+
+custProfile = aggregate(bankData[,c(2,4,7)],list(bankData$hclust_cluster), FUN = 'mean')
+custProfile1 = aggregate(bankData[,c(10:14)],list(bankData$hclust_cluster), FUN = 'sum')
+print (custProfile)
+print (custProfile1)
+
+mergedCustProfile = merge(custProfile,custProfile1,by = 'Group.1')
+colnames(mergedCustProfile) = c('Groups','Average Age','Average Monthly Income','AverageCCSpending','No.of_PersonalLoans','No.of_SecuritiesAccount','No.of.CDAccount','No.of.OnlineBankers','No.of.CCHolders')
+print (mergedCustProfile)
+                                                            
+
+```
+
+
+#########################CART###################################
+
+
+
+```{r}
+
+seed = 1000
+set.seed(seed)
+bankData1 = data.frame(bankData[,c(2:13)])  # dont need customer id and hclust added in the previos exercise
+bankData1$Personal.Loan = as.factor(bankData1$Personal.Loan)
+sample = sample.split(bankData1$Personal.Loan,SplitRatio = 0.7)
+trainSet = subset(bankData1, sample == TRUE)
+testSet = subset(bankData1, sample == FALSE)
+head(trainSet)
+head(testSet)
+
+bankDataCart <- rpart(formula = trainSet$Personal.Loan ~ ., 
+            data = trainSet, method = "class", cp=0, minbucket=3)
+
+bankDataCart
+
+library(rpart.plot)
+rpart.plot(bankDataCart)
+printcp(bankDataCart)
+plotcp(bankDataCart)
+```
+
+
+#As we can see in the above graph the error value does not change much after 4th branch, hence to avoid the complexity we can prune the tree.
+Also from the above table we can see 4th branch has lowest cross validation error as well , hence its good to stop the 
+We will give alpha as 0.007(because if we see the above table , the change in relative error after 6rd branch is very less) 
+
+```{r}
+bankDataCart_Pruned = prune(bankDataCart, cp= 0.007 ,"CP")
+printcp(bankDataCart_Pruned)
+rpart.plot(bankDataCart_Pruned)
+```
+
+
+So we can say :
+ The customers likes to take loans are the ones who have
+ Income < 115K and CCAvg usage > 3 and CD accounts > 0 or
+ Income > 115k and Education above graduate level  or
+ Income > 115k and Education below graduate level and Family members above 3
+```{r}
+
+trainSet$Predicton =  predict(bankDataCart_Pruned, trainSet , type='class')
+trainSet$Probibility = predict(bankDataCart_Pruned,trainSet, type="prob")[,"1"]
+cfMatrix_CART_trained = table(trainSet$Personal.Loan, trainSet$Predicton)
+print((cfMatrix_CART_trained[1,2]+cfMatrix_CART_trained[2,1])/3500)
+
+testSet$Predicton =  predict(bankDataCart_Pruned, testSet , type='class')
+testSet$Probibility = predict(bankDataCart_Pruned,testSet, type="prob")[,"1"]
+cfMatrix_CART_test = table(testSet$Personal.Loan , testSet$Predicton)
+print((cfMatrix_CART_test[1,2]+cfMatrix_CART_test[2,1])/1500)
+```
+
+
+# Error rate on trained data is 0.014 and on test is 0.021
+
+
+
+
+###############Random Forest#####################
+
+
+```{r}
+
+set.seed(seed)
+str(bankData1)
+trainSet = trainSet[c(1:12)]
+bankDataRforest = randomForest(trainSet$Personal.Loan~. ,data=trainSet,ntree=501,mtry=7,nodesize=10,importance=TRUE)
+print(bankDataRforest)
+
+#let plot the tree and compare the OOB for all the tress
+plot(bankDataRforest)
+
+#The black line shows that the OOB decreases till 21 and then remains the same , so we can build a RF with only 21 trees
+bankDataRforest21 = randomForest(trainSet$Personal.Loan~. ,data=trainSet,ntree=21,mtry=7,nodesize=10,importance=TRUE)
+print(bankDataRforest21)
+plot(bankDataRforest21)
+```
+```{r}
+
+#Find out the best mtry
+bankDataRforest_Tuned = tuneRF(x=trainSet[-c(8)],y=trainSet$Personal.Loan ,mtrystart = 3,stepfactor=1.5,ntree=21,improve=0.0001,
+                  nodesize=10,trace=TRUE,plot=TRUE,doBest=TRUE,importance=TRUE)
+
+importance(bankDataRforest_Tuned)
+```
+
+#The variables Income , Edication and Family members are the most important variables and removal of those will serverly affect the accuracy of the model
+
+```{r}
+#Lets run the model on the test data
+
+trainSet$PredictonRF =  predict(bankDataRforest_Tuned, trainSet , type='class')
+trainSet$ProbibilityRF = predict(bankDataRforest_Tuned,trainSet, type="prob") [,"1"]
+cfMatrixRF_train = table(trainSet$Personal.Loan,trainSet$PredictonRF)
+#print(cfMatrixRF_train)
+#print((cfMatrixRF_train[1,2]+cfMatrixRF_train[2,1])/3500)
+
+testSet = testSet[c(1:12)]
+testSet$PredictonRF =  predict(bankDataRforest_Tuned, testSet , type='class')
+testSet$ProbibilityRF = predict(bankDataRforest_Tuned,testSet, type="prob")[,"1"]
+cfMatrixRF = table(testSet$Personal.Loan,testSet$PredictonRF)
+#print((cfMatrixRF[1,2]+cfMatrixRF[2,1])/1500)
+
+
+mean(trainSet$Personal.Loan[trainSet$ProbibilityRF>0.65]==1)
+
+#So almost 99.35 % of customers will respond to the campaign
+
+#let check on testdata
+mean(testSet$Personal.Loan[testSet$ProbibilityRF>0.65]==1)
+#on the test data 96.69 % of the customers identified will respond
+
+
+```
+
+#The overall error rate in training set is 0.006 and in the sample is 0.018
+
+```{r}
+#Confunsion Matrix
+print (cfMatrixRF_train)
+erroRate = ((cfMatrixRF_train[1,2]+cfMatrixRF_train[2,1])/3500)
+accuracy = 1 - erroRate
+paste("error rate :" , erroRate) # FalsePositives and FalseNegatives
+paste("accuray:" , accuracy)    #  TruePositives and TrueNegatives
+TPR = ((cfMatrixRF_train[1,1])/sum(cfMatrixRF_train[1,1]+cfMatrixRF_train[2,1]))
+paste("Sensitivity:", TPR)
+TNR = ((cfMatrixRF_train[2,2])/sum(cfMatrixRF_train[1,2]+cfMatrixRF_train[2,2]))
+paste("Specificity:", TNR)
+```
+
+
+
+##########################Model Evaluation#################################
+
+```{r}
+
+##KS
+dataBankQS = quantile(testSet$ProbibilityRF , prob = seq(0,1,length=11 ))
+print (dataBankQS)
+trainSet$deciles=cut(trainSet$ProbibilityRF, unique(dataBankQS),include.lowest = TRUE,right=FALSE)
+print(trainSet$deciles)
+
+
+trainDT = data.table(trainSet)
+
+
+rankTbl = trainDT[, list(
+ cnt = length(trainDT$Personal.Loan),
+cnt_tar1 = sum(trainDT$Personal.Loan==1),
+ cnt_tar0 = sum(trainDT$Personal.Loan == 0)
+ ),
+ by=deciles][order(-deciles)]
+
+
+
+rankTbl$rrate = round(rankTbl$cnt_tar1 / rankTbl$cnt,4)*100;
+rankTbl$cum_resp = cumsum(rankTbl$cnt_tar1)
+rankTbl$cum_non_resp = cumsum(rankTbl$cnt_tar0)
+rankTbl$cum_rel_resp = round(rankTbl$cum_resp / sum(rankTbl$cnt_tar1),4)*100;
+rankTbl$cum_rel_non_resp = round(rankTbl$cum_non_resp / sum(rankTbl$cnt_tar0),4)*100;
+rankTbl$ks = abs(rankTbl$cum_rel_resp - rankTbl$cum_rel_non_resp);
+
+print(rankTbl)
+
+```
+
+
+
+
+
